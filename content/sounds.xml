@@ -1,0 +1,9 @@
+<sounds root="sfx/">
+	<sound name="Churchill Windup">
+		<sample weight="1" path="churchill_windup.wav" />
+	</sound>
+	
+	<sound name="Churchill Winddown">
+		<sample weight="1" path="churchill_winddown.wav" />  
+	</sound>
+</sounds>

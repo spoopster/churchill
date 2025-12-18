@@ -1,0 +1,12 @@
+<players nameimageroot="gfx/ui/player_portraits/" portraitroot="gfx/ui/player_portraits/" root="gfx/characters/">
+	<!-- NORMALS -->
+
+	<player birthright=" " name="Churchill"
+		nameimage="name_churchill.png" portrait="portrait_churchill.png" skin="character_churchill.png"
+		skinColor="5"
+		modcostume="200"
+
+		heartcontainers="6" redhearts="6" soulhearts="2"
+		bombs="1"
+	/>
+</players>
