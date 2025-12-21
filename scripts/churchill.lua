@@ -6,9 +6,10 @@ local END_LAG = 16
 local DMG_MULT = 1.05
 
 local BASE_TEARS_MULT = 0.3
-local WINDUP_TEARS_MULT = 1.4
+local WINDUP_TEARS_MULT = 1.5
 
 local MAX_WINDUP_DURATION = 60*4
+local BIRTHRIGHT_MAX_WINDUP = 60*10
 local WINDUP_PER = 40
 
 local WINDDOWN_FREQ = 9
@@ -65,24 +66,23 @@ local function churchillUpdate(_, pl)
         pl:PlayExtraAnimation("WindUpIdle")
     end
 
-    if(data.HELD_BOMB>=START_LAG) then
-        pl.Velocity = Vector.Zero
-    elseif(data.HELD_BOMB>0) then
-        pl.Velocity = pl.Velocity*0.6
-    end
-
     if(sp:IsEventTriggered("WindUpSFX")) then
         sfx:Stop(ChurchillMod.SFX_WINDDOWN)
         sfx:Play(ChurchillMod.SFX_WINDUP, 1, 2, false, 1+math.random(-5,5)/5*0.1)
 
         --pl:AddCacheFlags(CacheFlag.CACHE_FIREDELAY, true)
 
-        data.WINDUP = math.min((data.WINDUP or 0)+WINDUP_PER, MAX_WINDUP_DURATION)
+        local maxDuration = (pl:HasCollectible(CollectibleType.COLLECTIBLE_BIRTHRIGHT) and BIRTHRIGHT_MAX_WINDUP or MAX_WINDUP_DURATION)
+        data.WINDUP = math.min((data.WINDUP or 0)+WINDUP_PER, maxDuration)
+        data.SUPERCHARGE = nil
     end
 
     data.WINDUP = data.WINDUP or 0
     if(data.WINDUP>0 and data.WINDUP%WINDDOWN_FREQ==1) then
         local selFrame = data.WINDUP//WINDDOWN_FREQ % 4
+        if(data.WINDUP==1) then
+            data.SUPERCHARGE = nil
+        end
 
         local map = pl:GetCostumeLayerMap()
         local descs = pl:GetCostumeSpriteDescs()
@@ -92,7 +92,7 @@ local function churchillUpdate(_, pl)
                 local costumeSp = desc:GetSprite()
 
                 if(string.find(costumeSp:GetFilename(), "costume_churchill")) then
-                    local path = "gfx/characters/costume_churchill"..tostring(selFrame)..".png"
+                    local path = "gfx/characters/costume_churchill"..(data.SUPERCHARGE and "1" or "")..tostring(selFrame)..".png"
                     costumeSp:ReplaceSpritesheet(0, path)
                     costumeSp:LoadGraphics()
                 end
@@ -118,6 +118,7 @@ local function churchillUpdate(_, pl)
 
     if(data.WINDUP==0) then
         data.TARGET_TEARS = 0
+        data.SUPERCHARGE = nil
     else
         data.TARGET_TEARS = 1
     end
@@ -141,6 +142,56 @@ local function churchillUpdate(_, pl)
 end
 ChurchillMod:AddCallback(ModCallbacks.MC_POST_PLAYER_UPDATE, churchillUpdate, PlayerVariant.PLAYER)
 
+-- birthright stuff
+
+---@param firsttime boolean
+---@param pl EntityPlayer
+local function getBirthright(_, _, _, firsttime, _, _, pl)
+    if(firsttime and pl:GetPlayerType()==ChurchillMod.PLAYER_CHURCHILL) then
+        pl:AddBombs(5)
+    end
+end
+ChurchillMod:AddCallback(ModCallbacks.MC_POST_ADD_COLLECTIBLE, getBirthright, CollectibleType.COLLECTIBLE_BIRTHRIGHT)
+
+---@param pl EntityPlayer
+---@param bomb EntityBomb
+local function placeBomb(_, pl, bomb)
+    if(not (pl:GetPlayerType()==ChurchillMod.PLAYER_CHURCHILL and pl:HasCollectible(CollectibleType.COLLECTIBLE_BIRTHRIGHT))) then return end
+
+    bomb:SetExplosionCountdown(0)
+    pl:GetData().WINDUP = BIRTHRIGHT_MAX_WINDUP
+    pl:GetData().SUPERCHARGE = true
+
+    for _=1, 8 do
+        local angle = math.random(1,360)
+        local timeout = math.random(4,8)
+
+        local laser = EntityLaser.ShootAngle(LaserVariant.ELECTRIC, pl.Position, angle, timeout, Vector.Zero, pl)
+        laser:SetDamageMultiplier(0)
+        laser:SetDisableFollowParent(true)
+        laser:SetMaxDistance(math.random(50,150))
+    end
+end
+ChurchillMod:AddCallback(ModCallbacks.MC_POST_PLAYER_USE_BOMB, placeBomb, PlayerVariant.PLAYER)
+
+---@param pl EntityPlayer
+---@param flags DamageFlag
+local function cancelExplosionDamage(_, pl, _, flags)
+    if(not (pl:GetPlayerType()==ChurchillMod.PLAYER_CHURCHILL and pl:HasCollectible(CollectibleType.COLLECTIBLE_BIRTHRIGHT))) then return end
+
+    if(flags & DamageFlag.DAMAGE_EXPLOSION == DamageFlag.DAMAGE_EXPLOSION) then
+        return false
+    end
+end
+ChurchillMod:AddCallback(ModCallbacks.MC_PRE_PLAYER_TAKE_DMG, cancelExplosionDamage)
+
+local MOVE_ACTIONS = {
+    [ButtonAction.ACTION_UP] = 0,
+    [ButtonAction.ACTION_DOWN] = 0,
+    [ButtonAction.ACTION_LEFT] = 0,
+    [ButtonAction.ACTION_RIGHT] = 0,
+}
+
 ---@param ent Entity
 ---@param hook InputHook
 ---@param action ButtonAction
@@ -155,6 +206,12 @@ local function inputstuff(_, ent, hook, action)
         elseif(hook==InputHook.GET_ACTION_VALUE) then
             return (pl:GetData().PLACE_BOMB and 1.0 or 0.0)
         end
+    elseif(pl:GetData().HELD_BOMB and pl:GetData().HELD_BOMB>0 and MOVE_ACTIONS[action]) then
+        if(hook==InputHook.IS_ACTION_PRESSED or hook==InputHook.IS_ACTION_TRIGGERED) then
+            return false
+        elseif(hook==InputHook.GET_ACTION_VALUE) then
+            return 0
+        end
     end
 end
 ChurchillMod:AddCallback(ModCallbacks.MC_INPUT_ACTION, inputstuff)
@@ -166,7 +223,7 @@ local function churchillTearsMult(_, pl)
     local lerp = pl:GetData().CURRENT_TEARS or 0
     local tearsMult = ChurchillMod:lerp(BASE_TEARS_MULT, WINDUP_TEARS_MULT, lerp)
 
-    pl.MaxFireDelay = pl.MaxFireDelay/tearsMult
+    pl.MaxFireDelay = ChurchillMod:toFireDelay(ChurchillMod:toTps(pl.MaxFireDelay)*tearsMult)
 end
 ChurchillMod:AddPriorityCallback(ModCallbacks.MC_EVALUATE_CACHE, CallbackPriority.LATE, churchillTearsMult, CacheFlag.CACHE_FIREDELAY)
 
