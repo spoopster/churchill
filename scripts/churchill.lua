@@ -42,7 +42,14 @@ local function churchillUpdate(_, pl)
     local data = pl:GetData()
     local sp = pl:GetSprite()
 
+    if(sp:GetFilename()~="gfx/characters/character_churchill.anm2") then
+        sp:Load("gfx/characters/character_churchill.anm2", true)
+    end
+
     data.PLACE_BOMB = nil
+
+    data.HELD_BOMB = data.HELD_BOMB or 0
+    data.NOT_HELD_BOMB = data.NOT_HELD_BOMB or 0
 
     if(Input.IsActionPressed(ButtonAction.ACTION_BOMB, pl.ControllerIndex)) then
         data.HELD_BOMB = (data.HELD_BOMB or 0)+1
